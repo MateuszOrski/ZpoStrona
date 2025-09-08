@@ -115,6 +115,16 @@
             box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.1);
         }
 
+        input.error {
+            border-color: #dc3545;
+            background-color: #fff5f5;
+        }
+
+        input.success {
+            border-color: #28a745;
+            background-color: #f8fff8;
+        }
+
         .button {
             background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
             color: white;
@@ -133,6 +143,54 @@
             background: linear-gradient(135deg, #c82333 0%, #a71e2a 100%);
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(220, 53, 69, 0.4);
+        }
+
+        .button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .error-message {
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+            color: #721c24;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #dc3545;
+            font-weight: 500;
+        }
+
+        .success-message {
+            background: linear-gradient(135deg, #e8f5e8 0%, #f8fff8 100%);
+            color: #155724;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #28a745;
+            font-weight: 500;
+        }
+
+        .validation-info {
+            font-size: 0.9rem;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #ffffff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
 
         .albums-section {
@@ -290,12 +348,20 @@
     <div class="login-section" id="loginSection">
         <div class="card">
             <h2 class="section-title">Logowanie do systemu</h2>
+
+            <!-- Komunikaty -->
+            <div id="errorMessage" class="error-message" style="display: none;"></div>
+            <div id="successMessage" class="success-message" style="display: none;"></div>
+
             <form id="loginForm">
                 <div class="form-group">
                     <label for="albumNumber">Numer albumu:</label>
-                    <input type="number" id="albumNumber" placeholder="Wprowadź numer albumu" required>
+                    <input type="text" id="albumNumber" placeholder="Wprowadź 6-cyfrowy numer albumu" maxlength="6" required>
+                    <div class="validation-info">Numer albumu musi składać się z dokładnie 6 cyfr</div>
                 </div>
-                <button type="submit" class="button">Zaloguj się</button>
+                <button type="submit" class="button" id="loginButton">
+                    <span id="loginButtonText">Zaloguj się</span>
+                </button>
             </form>
         </div>
     </div>
@@ -316,95 +382,270 @@
 </div>
 
 <script>
-    // Przykładowe dane albumów
-    const albumsData = {
-        "12345": {
-            name: "Jan Kowalski",
-            group: "A",
-            albums: [
-                { number: "12345", student: "Jan Kowalski", details: "Informatyka, Semestr 3, Grupa A" },
-                { number: "12346", student: "Anna Nowak", details: "Informatyka, Semestr 3, Grupa A" },
-                { number: "12347", student: "Piotr Wiśniewski", details: "Informatyka, Semestr 3, Grupa A" },
-                { number: "12348", student: "Maria Wójcik", details: "Informatyka, Semestr 3, Grupa A" }
-            ]
-        },
-        "54321": {
-            name: "Anna Nowak",
-            group: "B",
-            albums: [
-                { number: "54321", student: "Anna Nowak", details: "Matematyka, Semestr 2, Grupa B" },
-                { number: "54322", student: "Tomasz Kowalczyk", details: "Matematyka, Semestr 2, Grupa B" },
-                { number: "54323", student: "Katarzyna Zielińska", details: "Matematyka, Semestr 2, Grupa B" }
-            ]
+    // Konfiguracja
+    const API_BASE_URL = 'http://localhost:8080/api';
+
+    // Walidacja numeru albumu
+    function validateAlbumNumber(albumNumber) {
+        // Sprawdź czy to dokładnie 6 cyfr
+        const pattern = /^\d{6}$/;
+        return pattern.test(albumNumber);
+    }
+
+    // Wyświetlenie komunikatu błędu
+    function showError(message) {
+        const errorDiv = document.getElementById('errorMessage');
+        const successDiv = document.getElementById('successMessage');
+
+        successDiv.style.display = 'none';
+        errorDiv.textContent = message;
+        errorDiv.style.display = 'block';
+
+        // Automatycznie ukryj po 5 sekundach
+        setTimeout(() => {
+            errorDiv.style.display = 'none';
+        }, 5000);
+    }
+
+    // Wyświetlenie komunikatu sukcesu
+    function showSuccess(message) {
+        const errorDiv = document.getElementById('errorMessage');
+        const successDiv = document.getElementById('successMessage');
+
+        errorDiv.style.display = 'none';
+        successDiv.textContent = message;
+        successDiv.style.display = 'block';
+
+        setTimeout(() => {
+            successDiv.style.display = 'none';
+        }, 3000);
+    }
+
+    // Sprawdzenie czy student istnieje w bazie
+    async function checkStudentExists(indexNumber) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/students/${indexNumber}`);
+            return response.ok;
+        } catch (error) {
+            console.error('Błąd sprawdzania studenta:', error);
+            return false;
         }
-    };
+    }
 
-    document.getElementById('loginForm').addEventListener('submit', function(e) {
+    // Pobieranie danych studenta
+    async function getStudentData(indexNumber) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/students/${indexNumber}`);
+            if (response.ok) {
+                return await response.json();
+            }
+            return null;
+        } catch (error) {
+            console.error('Błąd pobierania danych studenta:', error);
+            return null;
+        }
+    }
+
+    // Pobieranie studentów z tej samej grupy
+    async function getGroupStudents(groupName) {
+        try {
+            const encodedGroupName = encodeURIComponent(groupName);
+            const response = await fetch(`${API_BASE_URL}/students/group/${encodedGroupName}`);
+            if (response.ok) {
+                return await response.json();
+            }
+            return [];
+        } catch (error) {
+            console.error('Błąd pobierania studentów grupy:', error);
+            return [];
+        }
+    }
+
+    // Obsługa formularza logowania
+    document.getElementById('loginForm').addEventListener('submit', async function(e) {
         e.preventDefault();
-        const albumNumber = document.getElementById('albumNumber').value;
 
-        if (albumsData[albumNumber]) {
-            login(albumNumber);
-        } else {
-            alert('Nieprawidłowy numer albumu. Spróbuj: 12345 lub 54321');
+        const albumNumber = document.getElementById('albumNumber').value.trim();
+        const albumInput = document.getElementById('albumNumber');
+        const loginButton = document.getElementById('loginButton');
+        const loginButtonText = document.getElementById('loginButtonText');
+
+        // Resetuj style
+        albumInput.classList.remove('error', 'success');
+
+        // Walidacja formatu
+        if (!albumNumber) {
+            showError('Proszę wprowadzić numer albumu');
+            albumInput.classList.add('error');
+            albumInput.focus();
+            return;
+        }
+
+        if (!validateAlbumNumber(albumNumber)) {
+            showError('Numer albumu musi składać się z dokładnie 6 cyfr (np. 123456)');
+            albumInput.classList.add('error');
+            albumInput.focus();
+            return;
+        }
+
+        // Rozpocznij logowanie
+        loginButton.disabled = true;
+        loginButtonText.innerHTML = '<span class="loading"></span>Sprawdzam...';
+
+        try {
+            // Sprawdź czy student istnieje
+            const studentExists = await checkStudentExists(albumNumber);
+
+            if (!studentExists) {
+                showError(`Nieprawidłowy numer albumu. Student o numerze ${albumNumber} nie istnieje w systemie.`);
+                albumInput.classList.add('error');
+                albumInput.focus();
+                return;
+            }
+
+            // Pobierz dane studenta
+            const studentData = await getStudentData(albumNumber);
+
+            if (!studentData) {
+                showError('Błąd pobierania danych studenta. Spróbuj ponownie.');
+                return;
+            }
+
+            // Oznacz jako sukces
+            albumInput.classList.add('success');
+            showSuccess(`Witaj ${studentData.firstName} ${studentData.lastName}!`);
+
+            // Zaloguj studenta
+            setTimeout(() => {
+                login(studentData);
+            }, 1000);
+
+        } catch (error) {
+            console.error('Błąd logowania:', error);
+            showError('Błąd połączenia z serwerem. Sprawdź czy backend jest uruchomiony.');
+        } finally {
+            loginButton.disabled = false;
+            loginButtonText.textContent = 'Zaloguj się';
         }
     });
 
-    function login(albumNumber) {
-        const userData = albumsData[albumNumber];
+    // Walidacja w czasie rzeczywistym
+    document.getElementById('albumNumber').addEventListener('input', function(e) {
+        const input = e.target;
+        const value = input.value;
 
-        // Ukryj sekcję logowania
-        document.getElementById('loginSection').style.display = 'none';
+        // Usuń wszystko co nie jest cyfrą
+        const cleanValue = value.replace(/\D/g, '');
 
-        // Pokaż sekcję albumów
-        document.getElementById('albumsSection').style.display = 'block';
+        // Ogranicz do 6 znaków
+        if (cleanValue.length > 6) {
+            input.value = cleanValue.substring(0, 6);
+        } else {
+            input.value = cleanValue;
+        }
 
-        // Pokaż informacje o użytkowniku
-        document.getElementById('userInfo').style.display = 'flex';
-        document.getElementById('currentAlbum').textContent = `Album: ${albumNumber}`;
+        // Resetuj style błędu podczas pisania
+        input.classList.remove('error', 'success');
 
-        // Pokaż wiadomość powitalną
-        document.getElementById('welcomeMessage').innerHTML = `
-            <strong>Witaj, ${userData.name}!</strong><br>
-            Zalogowano pomyślnie. Album: ${albumNumber}, Grupa: ${userData.group}
-        `;
+        // Ukryj komunikaty błędów podczas pisania
+        document.getElementById('errorMessage').style.display = 'none';
+        document.getElementById('successMessage').style.display = 'none';
+    });
 
-        // Wygeneruj listę albumów
-        generateAlbumsGrid(userData.albums, userData.group);
+    // Logowanie studenta
+    async function login(studentData) {
+        try {
+            // Ukryj sekcję logowania
+            document.getElementById('loginSection').style.display = 'none';
+
+            // Pokaż sekcję albumów
+            document.getElementById('albumsSection').style.display = 'block';
+
+            // Pokaż informacje o użytkowniku
+            document.getElementById('userInfo').style.display = 'flex';
+            document.getElementById('currentAlbum').textContent = `Album: ${studentData.indexNumber}`;
+
+            // Pokaż wiadomość powitalną
+            const groupInfo = studentData.groupName ? `, Grupa: ${studentData.groupName}` : ' (bez przypisanej grupy)';
+            document.getElementById('welcomeMessage').innerHTML = `
+                <strong>Witaj, ${studentData.firstName} ${studentData.lastName}!</strong><br>
+                Zalogowano pomyślnie. Album: ${studentData.indexNumber}${groupInfo}
+            `;
+
+            // Wygeneruj listę albumów z grupy
+            if (studentData.groupName) {
+                const groupStudents = await getGroupStudents(studentData.groupName);
+                generateAlbumsGrid(groupStudents, studentData.groupName);
+            } else {
+                generateAlbumsGrid([studentData], 'Brak grupy');
+            }
+
+        } catch (error) {
+            console.error('Błąd podczas logowania:', error);
+            showError('Błąd podczas logowania. Spróbuj ponownie.');
+        }
     }
 
-    function generateAlbumsGrid(albums, group) {
+    // Generowanie siatki albumów
+    function generateAlbumsGrid(students, groupName) {
         const grid = document.getElementById('albumsGrid');
         const sectionTitle = document.querySelector('#albumsSection .section-title');
-        sectionTitle.textContent = `Lista albumów - Grupa ${group}`;
 
+        sectionTitle.textContent = `Lista albumów - ${groupName}`;
         grid.innerHTML = '';
 
-        albums.forEach(album => {
+        if (students.length === 0) {
+            grid.innerHTML = '<p style="text-align: center; color: #6c757d; grid-column: 1 / -1;">Brak studentów w tej grupie.</p>';
+            return;
+        }
+
+        students.forEach(student => {
             const albumCard = document.createElement('div');
             albumCard.className = 'album-card';
+
+            const groupInfo = student.groupName ? student.groupName : 'Brak grupy';
+
             albumCard.innerHTML = `
-                <div class="album-number">Album #${album.number}</div>
+                <div class="album-number">Album #${student.indexNumber}</div>
                 <div class="album-details">
-                    <strong>${album.student}</strong><br>
-                    ${album.details}
+                    <strong>${student.firstName} ${student.lastName}</strong><br>
+                    Grupa: ${groupInfo}<br>
+                    Status: ${student.active ? 'Aktywny' : 'Nieaktywny'}
                 </div>
             `;
 
             albumCard.addEventListener('click', function() {
-                alert(`Wyświetlanie szczegółów dla albumu ${album.number}\nStudent: ${album.student}`);
+                alert(`Szczegóły studenta:\n\nImię: ${student.firstName}\nNazwisko: ${student.lastName}\nAlbum: ${student.indexNumber}\nGrupa: ${groupInfo}`);
             });
 
             grid.appendChild(albumCard);
         });
     }
 
+    // Powrót do logowania
     function showLogin() {
         document.getElementById('loginSection').style.display = 'block';
         document.getElementById('albumsSection').style.display = 'none';
         document.getElementById('userInfo').style.display = 'none';
+
+        // Wyczyść formularz
         document.getElementById('albumNumber').value = '';
+        document.getElementById('albumNumber').classList.remove('error', 'success');
+        document.getElementById('errorMessage').style.display = 'none';
+        document.getElementById('successMessage').style.display = 'none';
     }
+
+    // Test połączenia z backendem przy ładowaniu strony
+    window.addEventListener('load', async function() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/health`);
+            if (!response.ok) {
+                console.warn('Backend może być niedostępny');
+            }
+        } catch (error) {
+            console.warn('Nie można połączyć się z backendem:', error);
+        }
+    });
 </script>
 </body>
 </html>
